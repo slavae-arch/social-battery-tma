@@ -16,7 +16,7 @@ async def send_bot_ping_notification(
     message: str
 ) -> bool:
     """Sends a Telegram bot message when a friend pings user."""
-    if not bot_instance or settings.DEV_MODE:
+    if not bot_instance or (settings.DEV_MODE and settings.BOT_TOKEN.startswith("mock_")):
         print(f"[Dev Bot Ping] To: {to_chat_id} | From: {sender_name} ({sender_battery}%) | Msg: {message}")
         return True
 
@@ -42,7 +42,7 @@ async def send_bot_ping_notification(
 
 async def send_smart_match_notification(user1_id: int, user2_id: int, user1_name: str, user2_name: str):
     """Sends Smart Match notification to both users when both are >80%."""
-    if not bot_instance or settings.DEV_MODE:
+    if not bot_instance or (settings.DEV_MODE and settings.BOT_TOKEN.startswith("mock_")):
         print(f"[Dev Smart Match] {user1_name} ({user1_id}) <-> {user2_name} ({user2_id})")
         return
 

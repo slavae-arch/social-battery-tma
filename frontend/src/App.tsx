@@ -76,7 +76,7 @@ export function App() {
   };
 
   const handleInviteFriend = () => {
-    const inviteLink = `https://t.me/my_social_battery_bot?startapp=ref_${userProfile.telegram_id}`;
+    const inviteLink = `https://t.me/my_social_battery_bot?start=ref_${userProfile.telegram_id}`;
     navigator.clipboard.writeText(inviteLink);
     telegram.hapticNotification('success');
     showToast('Инвайт-ссылка скопирована! Отправь её друзьям 🚀');

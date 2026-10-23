@@ -135,7 +135,7 @@ class TelegramService {
         this.tg.shareToStory(mediaUrl, {
           text: caption || 'Мой уровень социальной батарейки 🔋',
           widget_link: {
-            url: `https://t.me/my_social_battery_bot?startapp=ref_${this.getUser().id}`,
+            url: `https://t.me/my_social_battery_bot?start=ref_${this.getUser().id}`,
             name: 'Проверить заряд'
           }
         });

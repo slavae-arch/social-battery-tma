@@ -1,3 +1,4 @@
+import html
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -36,64 +37,84 @@ def get_checkin_keyboard():
 
 @router.message(CommandStart())
 async def handle_start(message: Message):
-    args = message.text.split()[1] if len(message.text.split()) > 1 else None
-    referrer_id = None
-    if args and args.startswith("ref_"):
-        try:
-            referrer_id = int(args.replace("ref_", ""))
-        except ValueError:
-            pass
+    sender_name = message.from_user.first_name or "друг"
+    print(f"[Bot] Handling /start from user={message.from_user.id} ({message.from_user.username}): text='{message.text}'", flush=True)
+    try:
+        args = message.text.split()[1] if len(message.text.split()) > 1 else None
+        referrer_id = None
+        if args and args.startswith("ref_"):
+            try:
+                referrer_id = int(args.replace("ref_", ""))
+            except ValueError:
+                pass
 
-    async with async_session() as db:
-        # Get or create current user
-        me_res = await db.execute(select(User).where(User.telegram_id == message.from_user.id))
-        me = me_res.scalar_one_or_none()
+        async with async_session() as db:
+            # Get or create current user
+            me_res = await db.execute(select(User).where(User.telegram_id == message.from_user.id))
+            me = me_res.scalar_one_or_none()
 
-        if not me:
-            me = User(
-                telegram_id=message.from_user.id,
-                username=message.from_user.username,
-                first_name=message.from_user.first_name,
-                last_name=message.from_user.last_name,
-                battery_level=80,
-                mood_tag="🔋 В ресурсе",
-                updated_at=datetime.utcnow()
-            )
-            db.add(me)
-            await db.flush()
+            if not me:
+                me = User(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=sender_name,
+                    last_name=message.from_user.last_name,
+                    battery_level=80,
+                    mood_tag="🔋 В ресурсе",
+                    updated_at=datetime.utcnow()
+                )
+                db.add(me)
+                await db.flush()
+            else:
+                if message.from_user.username:
+                    me.username = message.from_user.username
+                if message.from_user.first_name:
+                    me.first_name = message.from_user.first_name
+                if message.from_user.last_name:
+                    me.last_name = message.from_user.last_name
 
-        # Connect friendship if referred
-        friend_connected_text = ""
-        if referrer_id and referrer_id != message.from_user.id:
-            ref_res = await db.execute(select(User).where(User.telegram_id == referrer_id))
-            referrer = ref_res.scalar_one_or_none()
-            if referrer:
-                # Check existing
-                f_check = await db.execute(
-                    select(Friendship).where(
-                        or_(
-                            and_(Friendship.user_id_1 == me.id, Friendship.user_id_2 == referrer.id),
-                            and_(Friendship.user_id_1 == referrer.id, Friendship.user_id_2 == me.id)
+            # Connect friendship if referred
+            friend_connected_text = ""
+            if referrer_id and referrer_id != message.from_user.id:
+                ref_res = await db.execute(select(User).where(User.telegram_id == referrer_id))
+                referrer = ref_res.scalar_one_or_none()
+                if referrer:
+                    # Check existing
+                    f_check = await db.execute(
+                        select(Friendship).where(
+                            or_(
+                                and_(Friendship.user_id_1 == me.id, Friendship.user_id_2 == referrer.id),
+                                and_(Friendship.user_id_1 == referrer.id, Friendship.user_id_2 == me.id)
+                            )
                         )
                     )
-                )
-                if not f_check.scalar_one_or_none():
-                    new_f = Friendship(user_id_1=me.id, user_id_2=referrer.id, is_close_friend=False)
-                    db.add(new_f)
-                    friend_connected_text = f"\n\n🤝 <b>Вы теперь друзья с {referrer.first_name}!</b> Теперь вы видите заряды друг друга."
+                    if not f_check.scalar_one_or_none():
+                        new_f = Friendship(user_id_1=me.id, user_id_2=referrer.id, is_close_friend=False)
+                        db.add(new_f)
+                        ref_safe_name = html.escape(referrer.first_name or "друг")
+                        friend_connected_text = f"\n\n🤝 <b>Вы теперь друзья с {ref_safe_name}!</b> Теперь вы видите заряды друг друга."
 
-        await db.commit()
+            await db.commit()
 
-    welcome_text = (
-        f"👋 Привет, <b>{message.from_user.first_name}</b>!\n\n"
-        "🔋 <b>Социальная Батарейка</b> помогает понимать настроение и готовность друзей к общению без лишних вопросов.\n\n"
-        "• Выставляй свой процент заряда\n"
-        "• Следи за радаром друзей\n"
-        "• Отправляй быстрые пинги и зови на кофе"
-        f"{friend_connected_text}"
-    )
+        user_safe_name = html.escape(sender_name)
+        welcome_text = (
+            f"👋 Привет, <b>{user_safe_name}</b>!\n\n"
+            "🔋 <b>Социальная Батарейка</b> помогает понимать настроение и готовность друзей к общению без лишних вопросов.\n\n"
+            "• Выставляй свой процент заряда\n"
+            "• Следи за радаром друзей\n"
+            "• Отправляй быстрые пинги и зови на кофе"
+            f"{friend_connected_text}"
+        )
 
-    await message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_markup())
+        await message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_markup())
+        print(f"[Bot] Successfully answered /start for {message.from_user.id}", flush=True)
+    except Exception as e:
+        print(f"[Bot Error] handle_start failed: {e}", flush=True)
+        # Safe fallback reply
+        await message.answer(
+            "👋 Привет! Открывай Социальную Батарейку по кнопке ниже:",
+            reply_markup=get_main_menu_markup()
+        )
 
 @router.message(Command("checkin"))
 async def handle_checkin_command(message: Message):

@@ -33,7 +33,7 @@ export const StoriesShareModal: React.FC<StoriesShareModalProps> = ({
 
   const handleCopyLink = () => {
     telegram.hapticNotification('success');
-    const link = `https://t.me/my_social_battery_bot?startapp=ref_${user.telegram_id}`;
+    const link = `https://t.me/my_social_battery_bot?start=ref_${user.telegram_id}`;
     navigator.clipboard.writeText(link);
     setCopied(true);
     onCopied();

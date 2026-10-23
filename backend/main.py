@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from aiogram import Bot, Dispatcher
 from config import settings
@@ -11,6 +11,8 @@ from bot.inline import router as inline_router
 from bot.notifications import set_bot_instance
 from sqlalchemy import select
 
+bot: Bot = None
+dp: Dispatcher = None
 bot_task: asyncio.Task = None
 
 async def seed_initial_data():
@@ -60,13 +62,12 @@ async def seed_initial_data():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot_task
+    global bot, dp, bot_task
     # Startup: Database
     await init_db()
     await seed_initial_data()
 
-    # Startup: Telegram Bot Polling (if not dev mock token)
-    bot = None
+    # Startup: Telegram Bot (Webhook on HTTPS, Polling on local dev)
     if settings.BOT_TOKEN and not settings.BOT_TOKEN.startswith("mock_"):
         try:
             bot = Bot(token=settings.BOT_TOKEN)
@@ -75,21 +76,50 @@ async def lifespan(app: FastAPI):
             dp.include_router(bot_router)
             dp.include_router(inline_router)
 
-            async def start_bot_polling():
-                print("[Bot] Telegram bot polling started.")
-                await dp.start_polling(bot, allowed_updates=["message", "callback_query", "inline_query"])
+            is_https = settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://")
+            if is_https:
+                webhook_url = f"{settings.WEBAPP_URL.rstrip('/')}/api/webhook"
+                print(f"[Bot] Configuring Telegram Webhook: {webhook_url}", flush=True)
+                await bot.set_webhook(
+                    url=webhook_url,
+                    allowed_updates=["message", "callback_query", "inline_query"],
+                    drop_pending_updates=False
+                )
+                info = await bot.get_webhook_info()
+                print(f"[Bot] Webhook established: {info.url} (pending updates: {info.pending_update_count})", flush=True)
+            else:
+                try:
+                    await bot.delete_webhook(drop_pending_updates=False)
+                except Exception as e:
+                    print(f"[Bot Warning] delete_webhook: {e}", flush=True)
 
-            bot_task = asyncio.create_task(start_bot_polling())
+                async def start_bot_polling():
+                    while True:
+                        try:
+                            print("[Bot] Telegram bot polling started.", flush=True)
+                            await dp.start_polling(bot, allowed_updates=["message", "callback_query", "inline_query"])
+                        except asyncio.CancelledError:
+                            print("[Bot] Polling cancelled.", flush=True)
+                            break
+                        except Exception as e:
+                            print(f"[Bot Error] Polling crashed: {e}. Retrying in 5s...", flush=True)
+                            await asyncio.sleep(5)
+
+                bot_task = asyncio.create_task(start_bot_polling())
         except Exception as e:
-            print(f"[Bot Warning] Could not start bot polling: {e}")
+            print(f"[Bot Warning] Could not initialize bot: {e}", flush=True)
     else:
-        print("[Bot Info] Running in DEV mode with simulated bot responses.")
+        print("[Bot Info] Running in DEV mode with simulated bot responses.", flush=True)
 
     yield
 
     # Shutdown
     if bot_task:
         bot_task.cancel()
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            pass
     if bot:
         await bot.session.close()
 
@@ -107,6 +137,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Telegram Webhook Endpoint
+@app.post("/api/webhook")
+async def telegram_webhook(request: Request):
+    if not bot or not dp:
+        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content="Bot not initialized")
+    try:
+        update_data = await request.json()
+        await dp.feed_webhook_update(bot, update_data)
+        return {"ok": True}
+    except Exception as e:
+        print(f"[Webhook Error] {e}", flush=True)
+        return {"ok": False, "error": str(e)}
+
+@app.get("/api/bot-info")
+async def bot_info():
+    if not bot:
+        return {"status": "no bot initialized"}
+    try:
+        me = await bot.get_me()
+        webhook = await bot.get_webhook_info()
+        return {
+            "bot": {
+                "id": me.id,
+                "username": me.username,
+                "first_name": me.first_name
+            },
+            "webhook": {
+                "url": webhook.url,
+                "pending_update_count": webhook.pending_update_count,
+                "last_error_date": webhook.last_error_date,
+                "last_error_message": webhook.last_error_message
+            }
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # Include API Routers
 app.include_router(battery.router)
