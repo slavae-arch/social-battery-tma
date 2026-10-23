@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: social-battery-tma
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: BOT_TOKEN
+        value: "REDACTED_BOT_TOKEN"
+      - key: DEV_MODE
+        value: "False"
