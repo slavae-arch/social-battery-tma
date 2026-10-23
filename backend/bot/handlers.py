@@ -42,11 +42,14 @@ async def handle_start(message: Message):
     try:
         args = message.text.split()[1] if len(message.text.split()) > 1 else None
         referrer_id = None
-        if args and args.startswith("ref_"):
-            try:
-                referrer_id = int(args.replace("ref_", ""))
-            except ValueError:
-                pass
+        if args:
+            for prefix in ["friend_", "ref_", "app_", "join_"]:
+                if args.startswith(prefix):
+                    try:
+                        referrer_id = int(args.replace(prefix, ""))
+                        break
+                    except ValueError:
+                        pass
 
         async with async_session() as db:
             # Get or create current user

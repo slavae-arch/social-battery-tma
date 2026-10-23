@@ -19,18 +19,35 @@ import { BatteryCharging, Users, Layers, Share2, Smartphone } from 'lucide-react
 export function App() {
   const tgUser = telegram.getUser();
 
-  const [userProfile, setUserProfile] = useState<UserProfile>({
-    id: 1,
-    telegram_id: tgUser.id,
-    username: tgUser.username || '',
-    first_name: tgUser.first_name,
-    last_name: tgUser.last_name,
-    photo_url: tgUser.photo_url,
-    battery_level: 80,
-    mood_tag: '🔋 В ресурсе',
-    privacy: 'all',
-    duration: '4h',
-    updated_at: new Date().toISOString(),
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    try {
+      const cached = localStorage.getItem('social_battery_profile');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return {
+          ...parsed,
+          telegram_id: tgUser.id,
+          first_name: tgUser.first_name || parsed.first_name,
+          username: tgUser.username || parsed.username,
+          photo_url: tgUser.photo_url || parsed.photo_url,
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached profile:', e);
+    }
+    return {
+      id: 1,
+      telegram_id: tgUser.id,
+      username: tgUser.username || '',
+      first_name: tgUser.first_name,
+      last_name: tgUser.last_name,
+      photo_url: tgUser.photo_url,
+      battery_level: 80,
+      mood_tag: '🔋 В ресурсе',
+      privacy: 'all',
+      duration: '4h',
+      updated_at: new Date().toISOString(),
+    };
   });
 
   const [activeTab, setActiveTab] = useState<'status' | 'radar' | 'rooms'>('status');
@@ -42,6 +59,17 @@ export function App() {
   const saveTimeoutRef = useRef<any>(null);
 
   const persistStatus = (level: number, tag: MoodTag, privacy: PrivacyOption, duration: DurationOption) => {
+    try {
+      localStorage.setItem('social_battery_profile', JSON.stringify({
+        ...userProfile,
+        battery_level: level,
+        mood_tag: tag,
+        privacy,
+        duration,
+        updated_at: new Date().toISOString()
+      }));
+    } catch (e) {}
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
@@ -54,11 +82,21 @@ export function App() {
     telegram.init();
 
     const loadData = async () => {
-      // 1. Process referral invite if opened via ref link
+      // 1. Process referral invite if opened via ref or friend link
       const startParam = telegram.getStartParam();
-      if (startParam && startParam.startsWith('ref_')) {
-        const refId = parseInt(startParam.replace('ref_', ''), 10);
-        if (!isNaN(refId) && refId !== tgUser.id) {
+      if (startParam) {
+        let refId: number | null = null;
+        for (const prefix of ['friend_', 'ref_', 'app_', 'join_']) {
+          if (startParam.startsWith(prefix)) {
+            const parsed = parseInt(startParam.replace(prefix, ''), 10);
+            if (!isNaN(parsed)) {
+              refId = parsed;
+              break;
+            }
+          }
+        }
+
+        if (refId && refId !== tgUser.id) {
           try {
             const inviteRes = await api.processInvite(refId);
             if (inviteRes?.status === 'ok') {
@@ -75,6 +113,9 @@ export function App() {
         const myProfile = await api.getMyStatus();
         if (myProfile) {
           setUserProfile(myProfile);
+          try {
+            localStorage.setItem('social_battery_profile', JSON.stringify(myProfile));
+          } catch (e) {}
         }
       } catch (e) {
         console.warn('Error loading my status:', e);
@@ -129,10 +170,19 @@ export function App() {
   };
 
   const handleInviteFriend = () => {
-    const inviteLink = `https://t.me/my_social_battery_bot?start=ref_${userProfile.telegram_id}`;
+    const inviteLink = `https://t.me/my_social_battery_bot?start=friend_${userProfile.telegram_id}`;
+    const shareText = `🔋 Привет! Добавляйся ко мне в Социальную Батарейку, чтобы видеть мой заряд и знать, когда я готов общаться!`;
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(shareText)}`;
+
     navigator.clipboard.writeText(inviteLink);
     telegram.hapticNotification('success');
-    showToast('Инвайт-ссылка скопирована! Отправь её друзьям 🚀');
+
+    const tgWebApp = (window as any).Telegram?.WebApp;
+    if (tgWebApp?.openTelegramLink) {
+      tgWebApp.openTelegramLink(shareUrl);
+    } else {
+      showToast('Инвайт-ссылка скопирована! Отправь её друзьям 🚀');
+    }
   };
 
   const handleSendPing = async (friend: Friend, message: string) => {
