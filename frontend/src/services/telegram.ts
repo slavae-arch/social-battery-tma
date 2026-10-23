@@ -55,6 +55,14 @@ class TelegramService {
     return this.tg?.initData || 'mock_dev_init_data';
   }
 
+  public getStartParam(): string | null {
+    if (this.tg?.initDataUnsafe?.start_param) {
+      return this.tg.initDataUnsafe.start_param;
+    }
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tgWebAppStartParam') || params.get('startapp') || params.get('start') || params.get('ref') || null;
+  }
+
   public hapticImpact(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' = 'medium') {
     if (this.tg?.HapticFeedback) {
       try {

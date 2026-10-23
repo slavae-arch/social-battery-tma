@@ -103,7 +103,14 @@ async def process_invite(
     ref_res = await db.execute(select(User).where(User.telegram_id == payload.referrer_telegram_id))
     ref = ref_res.scalar_one_or_none()
     if not ref:
-        return {"status": "error", "detail": "Referrer not found"}
+        ref = User(
+            telegram_id=payload.referrer_telegram_id,
+            first_name="Друг",
+            battery_level=80,
+            mood_tag="🔋 В ресурсе",
+        )
+        db.add(ref)
+        await db.flush()
 
     # Check existing friendship
     existing_f = await db.execute(

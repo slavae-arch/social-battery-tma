@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { telegram } from './services/telegram';
+import { api } from './services/api';
 import { Friend, MoodTag, PrivacyOption, DurationOption, UserProfile, Room } from './types';
-import { INITIAL_FRIENDS } from './services/mockData';
 import { getBatteryColor } from './utils/battery';
 import { BatteryWidget } from './components/BatteryWidget';
 import { BatterySlider } from './components/BatterySlider';
@@ -26,7 +26,7 @@ export function App() {
     first_name: tgUser.first_name,
     last_name: tgUser.last_name,
     photo_url: tgUser.photo_url,
-    battery_level: 85,
+    battery_level: 80,
     mood_tag: '🔋 В ресурсе',
     privacy: 'all',
     duration: '4h',
@@ -34,13 +34,62 @@ export function App() {
   });
 
   const [activeTab, setActiveTab] = useState<'status' | 'radar' | 'rooms'>('status');
-  const [friends, setFriends] = useState<Friend[]>(INITIAL_FRIENDS);
+  const [friends, setFriends] = useState<Friend[]>([]);
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [isStoriesOpen, setIsStoriesOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'info' | 'match' } | null>(null);
 
+  const saveTimeoutRef = useRef<any>(null);
+
+  const persistStatus = (level: number, tag: MoodTag, privacy: PrivacyOption, duration: DurationOption) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      api.updateBattery(level, tag, privacy, duration);
+    }, 350);
+  };
+
   useEffect(() => {
     telegram.init();
+
+    const loadData = async () => {
+      // 1. Process referral invite if opened via ref link
+      const startParam = telegram.getStartParam();
+      if (startParam && startParam.startsWith('ref_')) {
+        const refId = parseInt(startParam.replace('ref_', ''), 10);
+        if (!isNaN(refId) && refId !== tgUser.id) {
+          try {
+            const inviteRes = await api.processInvite(refId);
+            if (inviteRes?.status === 'ok') {
+              showToast(`🤝 Вы теперь друзья с ${inviteRes.friend_name || 'новым другом'}!`);
+            }
+          } catch (e) {
+            console.warn('Invite error:', e);
+          }
+        }
+      }
+
+      // 2. Load my profile from backend
+      try {
+        const myProfile = await api.getMyStatus();
+        if (myProfile) {
+          setUserProfile(myProfile);
+        }
+      } catch (e) {
+        console.warn('Error loading my status:', e);
+      }
+
+      // 3. Load real friends
+      try {
+        const friendsList = await api.getFriends();
+        setFriends(friendsList);
+      } catch (e) {
+        console.warn('Error loading friends:', e);
+      }
+    };
+
+    loadData();
   }, []);
 
   const showToast = (message: string, type: 'success' | 'info' | 'match' = 'success') => {
@@ -59,20 +108,24 @@ export function App() {
         colors: ['#10b981', '#34d399', '#6ee7b7', '#fef08a'],
       });
     }
+    persistStatus(level, userProfile.mood_tag, userProfile.privacy, userProfile.duration);
   };
 
   const handleTagChange = (tag: MoodTag) => {
     setUserProfile((prev) => ({ ...prev, mood_tag: tag }));
     showToast(`Статус обновлен: ${tag}`);
+    persistStatus(userProfile.battery_level, tag, userProfile.privacy, userProfile.duration);
   };
 
   const handleDurationChange = (duration: DurationOption) => {
     setUserProfile((prev) => ({ ...prev, duration }));
+    persistStatus(userProfile.battery_level, userProfile.mood_tag, userProfile.privacy, duration);
   };
 
   const handlePrivacyChange = (privacy: PrivacyOption) => {
     setUserProfile((prev) => ({ ...prev, privacy }));
     showToast(privacy === 'close_friends' ? 'Статус виден только близким ⭐️' : 'Статус виден всем друзьям');
+    persistStatus(userProfile.battery_level, userProfile.mood_tag, privacy, userProfile.duration);
   };
 
   const handleInviteFriend = () => {
@@ -82,12 +135,13 @@ export function App() {
     showToast('Инвайт-ссылка скопирована! Отправь её друзьям 🚀');
   };
 
-  const handleSendPing = (friend: Friend, message: string) => {
+  const handleSendPing = async (friend: Friend, message: string) => {
     setSelectedFriend(null);
     showToast(`Пинг отправлен для ${friend.first_name}: "${message}"`, 'info');
+    await api.sendPing(friend.telegram_id, message);
   };
 
-  const handleToggleCloseFriend = (friendId: number) => {
+  const handleToggleCloseFriend = async (friendId: number) => {
     setFriends((prev) =>
       prev.map((f) => (f.id === friendId ? { ...f, is_close_friend: !f.is_close_friend } : f))
     );
@@ -95,6 +149,7 @@ export function App() {
       setSelectedFriend((prev) => (prev ? { ...prev, is_close_friend: !prev.is_close_friend } : null));
     }
     showToast('Список близких друзей обновлен');
+    await api.toggleCloseFriend(friendId);
   };
 
   const handleHangoutCall = (room: Room, readyCount: number) => {

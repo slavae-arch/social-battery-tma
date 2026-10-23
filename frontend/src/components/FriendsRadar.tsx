@@ -36,7 +36,7 @@ export const FriendsRadar: React.FC<FriendsRadarProps> = ({
             Радар друзей
           </span>
           <span className="text-[11px] text-slate-300 mt-0.5">
-            Позови друзей (ниже — демо-персонажи)
+            Следи за настроением и уровнем энергии
           </span>
         </div>
         <button
@@ -110,11 +110,34 @@ export const FriendsRadar: React.FC<FriendsRadarProps> = ({
             />
           ))
         ) : (
-          <div className="text-center py-8 px-4 bg-slate-900/40 rounded-2xl border border-slate-800/50">
-            <p className="text-sm text-slate-400">В этой категории пока никого нет</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Поделись ссылкой с друзьями, чтобы они добавились в радар!
-            </p>
+          <div className="text-center py-10 px-4 bg-slate-900/60 rounded-3xl border border-slate-800/80 flex flex-col items-center gap-3 shadow-inner">
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-2xl">
+              🔋
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-200">
+                {friends.length === 0
+                  ? 'У вас пока нет друзей в Батарейке'
+                  : 'В этой категории никого нет'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1 max-w-[240px]">
+                {friends.length === 0
+                  ? 'Отправьте инвайт-ссылку друзьям, чтобы видеть их заряд и настроение!'
+                  : 'Попробуйте переключить фильтр выше'}
+              </p>
+            </div>
+            {friends.length === 0 && (
+              <button
+                onClick={() => {
+                  telegram.hapticNotification('success');
+                  onInviteFriend();
+                }}
+                className="mt-1 flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg active:scale-95 transition-all"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Пригласить друга</span>
+              </button>
+            )}
           </div>
         )}
       </div>

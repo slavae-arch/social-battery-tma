@@ -56,11 +56,6 @@ export const FriendCard: React.FC<FriendCardProps> = ({ friend, onClick }) => {
             <span className="font-bold text-sm text-slate-100 group-hover:text-blue-400 transition-colors">
               {friend.first_name} {friend.last_name || ''}
             </span>
-            {friend.is_demo && (
-              <span className="text-[10px] font-semibold text-amber-300/90 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded-md">
-                тест
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2 mt-0.5">

@@ -78,21 +78,31 @@ async def handle_start(message: Message):
             if referrer_id and referrer_id != message.from_user.id:
                 ref_res = await db.execute(select(User).where(User.telegram_id == referrer_id))
                 referrer = ref_res.scalar_one_or_none()
-                if referrer:
-                    # Check existing
-                    f_check = await db.execute(
-                        select(Friendship).where(
-                            or_(
-                                and_(Friendship.user_id_1 == me.id, Friendship.user_id_2 == referrer.id),
-                                and_(Friendship.user_id_1 == referrer.id, Friendship.user_id_2 == me.id)
-                            )
+                if not referrer:
+                    referrer = User(
+                        telegram_id=referrer_id,
+                        first_name="Друг",
+                        battery_level=80,
+                        mood_tag="🔋 В ресурсе",
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(referrer)
+                    await db.flush()
+
+                # Check existing
+                f_check = await db.execute(
+                    select(Friendship).where(
+                        or_(
+                            and_(Friendship.user_id_1 == me.id, Friendship.user_id_2 == referrer.id),
+                            and_(Friendship.user_id_1 == referrer.id, Friendship.user_id_2 == me.id)
                         )
                     )
-                    if not f_check.scalar_one_or_none():
-                        new_f = Friendship(user_id_1=me.id, user_id_2=referrer.id, is_close_friend=False)
-                        db.add(new_f)
-                        ref_safe_name = html.escape(referrer.first_name or "друг")
-                        friend_connected_text = f"\n\n🤝 <b>Вы теперь друзья с {ref_safe_name}!</b> Теперь вы видите заряды друг друга."
+                )
+                if not f_check.scalar_one_or_none():
+                    new_f = Friendship(user_id_1=me.id, user_id_2=referrer.id, is_close_friend=False)
+                    db.add(new_f)
+                    ref_safe_name = html.escape(referrer.first_name or "друг")
+                    friend_connected_text = f"\n\n🤝 <b>Вы теперь друзья с {ref_safe_name}!</b> Теперь вы видите заряды друг друга."
 
             await db.commit()
 

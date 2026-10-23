@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Room } from '../types';
-import { INITIAL_ROOMS } from '../services/mockData';
+import { api } from '../services/api';
 import { getBatteryColor } from '../utils/battery';
 import { Users, Flame, Plus, BellRing } from 'lucide-react';
 import { telegram } from '../services/telegram';
@@ -11,13 +11,23 @@ interface RoomsTabProps {
 }
 
 export const RoomsTab: React.FC<RoomsTabProps> = ({ onHangoutCall, onAddBotToGroup }) => {
-  const [rooms] = useState<Room[]>(INITIAL_ROOMS);
-  const [selectedRoomId, setSelectedRoomId] = useState<string>(INITIAL_ROOMS[0].id);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getRooms().then((res) => {
+      if (res && res.length > 0) {
+        setRooms(res);
+        setSelectedRoomId(res[0].id);
+      }
+    });
+  }, []);
 
   const activeRoom = rooms.find((r) => r.id === selectedRoomId) || rooms[0];
-  const readyMembers = activeRoom.members.filter((m) => m.battery_level >= 70);
+  const readyMembers = activeRoom?.members ? activeRoom.members.filter((m) => m.battery_level >= 70) : [];
 
   const handleCallHangout = () => {
+    if (!activeRoom) return;
     telegram.hapticNotification('success');
     onHangoutCall(activeRoom, readyMembers.length);
   };
@@ -44,34 +54,57 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onHangoutCall, onAddBotToGro
         </button>
       </div>
 
-      {/* Room Tabs Selector */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {rooms.map((room) => {
-          const isSelected = room.id === selectedRoomId;
-          const color = getBatteryColor(room.avg_battery);
-          return (
-            <button
-              key={room.id}
-              onClick={() => {
-                telegram.hapticImpact('light');
-                setSelectedRoomId(room.id);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-bold border transition-all whitespace-nowrap ${
-                isSelected
-                  ? 'bg-slate-800 border-slate-600 text-white shadow-md'
-                  : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>{room.icon}</span>
-              <span>{room.title}</span>
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: color }}
-              />
-            </button>
-          );
-        })}
-      </div>
+      {rooms.length === 0 ? (
+        <div className="text-center py-10 px-4 bg-slate-900/60 rounded-3xl border border-slate-800/80 flex flex-col items-center gap-3 shadow-inner">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-2xl">
+            ✨
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-200">
+              Пока нет групповых комнат
+            </p>
+            <p className="text-xs text-slate-400 mt-1 max-w-[240px]">
+              Добавьте @my_social_battery_bot в общий чат с друзьями, чтобы видеть средний заряд компании!
+            </p>
+          </div>
+          <button
+            onClick={onAddBotToGroup}
+            className="mt-1 flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Добавить бота в группу</span>
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Room Tabs Selector */}
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {rooms.map((room) => {
+              const isSelected = room.id === selectedRoomId;
+              const color = getBatteryColor(room.avg_battery);
+              return (
+                <button
+                  key={room.id}
+                  onClick={() => {
+                    telegram.hapticImpact('light');
+                    setSelectedRoomId(room.id);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-bold border transition-all whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-slate-800 border-slate-600 text-white shadow-md'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>{room.icon}</span>
+                  <span>{room.title}</span>
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: color }}
+                  />
+                </button>
+              );
+            })}
+          </div>
 
       {/* Selected Room Overview Card */}
       <div className="p-4 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex flex-col gap-3 shadow-lg">
@@ -164,6 +197,8 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onHangoutCall, onAddBotToGro
           <BellRing className="w-3.5 h-3.5" />
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 };

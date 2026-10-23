@@ -9,63 +9,39 @@ from routes import battery, friends, pings, rooms
 from bot.handlers import router as bot_router
 from bot.inline import router as inline_router
 from bot.notifications import set_bot_instance
-from sqlalchemy import select
+from sqlalchemy import select, delete, or_
 
 bot: Bot = None
 dp: Dispatcher = None
 bot_task: asyncio.Task = None
 
-async def seed_initial_data():
-    """Seeds initial mock friends and groups if empty."""
+async def cleanup_mock_data():
+    """Removes initial test characters and test rooms from database."""
     async with async_session() as db:
-        users_count = (await db.execute(select(User))).scalars().all()
-        if len(users_count) == 0:
-            mock_users = [
-                User(id=1, telegram_id=7770001, username="alex_energy", first_name="Алексей", last_name="Смирнов", battery_level=85, mood_tag="🔋 В ресурсе"),
-                User(id=2, telegram_id=1001, username="dima_sky", first_name="Дима", last_name="Воронов", battery_level=92, mood_tag="☕️ Хочу кофе"),
-                User(id=3, telegram_id=1002, username="anya_art", first_name="Аня", last_name="Ковалева", battery_level=85, mood_tag="🎉 Готов к движу"),
-                User(id=4, telegram_id=1003, username="misha_code", first_name="Михаил", last_name="Петухов", battery_level=60, mood_tag="💻 В потоке"),
-                User(id=5, telegram_id=1004, username="katya_music", first_name="Катя", last_name="Рябова", battery_level=25, mood_tag="🪫 Не трогать"),
-                User(id=6, telegram_id=1005, username="ilya_dev", first_name="Илья", last_name="Кузнецов", battery_level=15, mood_tag="😴 Сплю / Отдыхаю"),
-            ]
-            for u in mock_users:
-                db.add(u)
-            await db.flush()
+        mock_tg_ids = [7770001, 1001, 1002, 1003, 1004, 1005]
+        mock_users = (await db.execute(select(User).where(User.telegram_id.in_(mock_tg_ids)))).scalars().all()
+        if mock_users:
+            mock_ids = [u.id for u in mock_users]
+            await db.execute(delete(Friendship).where(
+                or_(Friendship.user_id_1.in_(mock_ids), Friendship.user_id_2.in_(mock_ids))
+            ))
+            await db.execute(delete(RoomMember).where(RoomMember.user_id.in_(mock_ids)))
+            await db.execute(delete(User).where(User.id.in_(mock_ids)))
 
-            # Friendships with user 1 (Alex)
-            friendships = [
-                Friendship(user_id_1=1, user_id_2=2, is_close_friend=True),
-                Friendship(user_id_1=1, user_id_2=3, is_close_friend=True),
-                Friendship(user_id_1=1, user_id_2=4, is_close_friend=False),
-                Friendship(user_id_1=1, user_id_2=5, is_close_friend=True),
-                Friendship(user_id_1=1, user_id_2=6, is_close_friend=False),
-            ]
-            for f in friendships:
-                db.add(f)
+        mock_rooms = (await db.execute(select(Room).where(Room.id.in_(["room_besties", "room_uni", "room_work"])))).scalars().all()
+        if mock_rooms:
+            await db.execute(delete(RoomMember).where(RoomMember.room_id.in_(["room_besties", "room_uni", "room_work"])))
+            await db.execute(delete(Room).where(Room.id.in_(["room_besties", "room_uni", "room_work"])))
 
-            # Initial room
-            room = Room(id="room_besties", title="Лучшие друзья", icon="✨", description="Наш уютный ближний круг")
-            db.add(room)
-            await db.flush()
-
-            room_members = [
-                RoomMember(room_id="room_besties", user_id=1),
-                RoomMember(room_id="room_besties", user_id=2),
-                RoomMember(room_id="room_besties", user_id=3),
-                RoomMember(room_id="room_besties", user_id=5),
-            ]
-            for rm in room_members:
-                db.add(rm)
-
-            await db.commit()
-            print("[DB] Initial mock database seeded successfully.")
+        await db.commit()
+        print("[DB] Cleaned up test mock data successfully.", flush=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot, dp, bot_task
     # Startup: Database
     await init_db()
-    await seed_initial_data()
+    await cleanup_mock_data()
 
     # Startup: Telegram Bot (Webhook on HTTPS, Polling on local dev)
     if settings.BOT_TOKEN and not settings.BOT_TOKEN.startswith("mock_"):
