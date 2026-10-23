@@ -76,7 +76,7 @@ export function App() {
   };
 
   const handleInviteFriend = () => {
-    const inviteLink = `https://t.me/social_battery_bot/app?startapp=ref_${userProfile.telegram_id}`;
+    const inviteLink = `https://t.me/my_social_battery_bot?startapp=ref_${userProfile.telegram_id}`;
     navigator.clipboard.writeText(inviteLink);
     telegram.hapticNotification('success');
     showToast('Инвайт-ссылка скопирована! Отправь её друзьям 🚀');
@@ -103,7 +103,7 @@ export function App() {
 
   const handleAddBotToGroup = () => {
     telegram.hapticImpact('medium');
-    const groupAddUrl = `https://t.me/social_battery_bot?startgroup=true`;
+    const groupAddUrl = `https://t.me/my_social_battery_bot?startgroup=true`;
     window.open(groupAddUrl, '_blank');
   };
 
