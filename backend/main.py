@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from config import settings
 from database import init_db, async_session, User, Friendship, Room, RoomMember
 from routes import battery, friends, pings, rooms
-from bot.handlers import router as bot_router
+from bot.handlers import router as bot_router, get_checkin_keyboard
 from bot.inline import router as inline_router
 from bot.notifications import set_bot_instance
 from sqlalchemy import select, delete, or_
@@ -14,6 +15,7 @@ from sqlalchemy import select, delete, or_
 bot: Bot = None
 dp: Dispatcher = None
 bot_task: asyncio.Task = None
+scheduler_task: asyncio.Task = None
 
 async def cleanup_mock_data():
     """Removes initial test characters and test rooms from database."""
@@ -36,9 +38,41 @@ async def cleanup_mock_data():
         await db.commit()
         print("[DB] Cleaned up test mock data successfully.", flush=True)
 
+async def daily_checkin_scheduler(bot_client: Bot):
+    """Sends daily check-in prompt to all active users at 08:00 UTC (11:00 MSK)."""
+    while True:
+        try:
+            now = datetime.utcnow()
+            target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            print(f"[Scheduler] Next daily check-in in {int(wait_seconds)}s (target: {target.isoformat()} UTC)", flush=True)
+            await asyncio.sleep(wait_seconds)
+
+            async with async_session() as db:
+                users = (await db.execute(select(User).where(User.telegram_id.isnot(None)))).scalars().all()
+                for u in users:
+                    try:
+                        await bot_client.send_message(
+                            chat_id=u.telegram_id,
+                            text="🔋 <b>Утренний чек-ин социальной батарейки!</b>\n\nКак твой уровень энергии прямо сейчас? Выбери в один клик:",
+                            parse_mode="HTML",
+                            reply_markup=get_checkin_keyboard()
+                        )
+                        await asyncio.sleep(0.05)
+                    except Exception as e:
+                        print(f"[Scheduler send error to {u.telegram_id}]: {e}", flush=True)
+        except asyncio.CancelledError:
+            print("[Scheduler] Task cancelled.", flush=True)
+            break
+        except Exception as e:
+            print(f"[Scheduler error]: {e}", flush=True)
+            await asyncio.sleep(60)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, dp, bot_task
+    global bot, dp, bot_task, scheduler_task
     # Startup: Database
     await init_db()
     await cleanup_mock_data()
@@ -82,6 +116,9 @@ async def lifespan(app: FastAPI):
                             await asyncio.sleep(5)
 
                 bot_task = asyncio.create_task(start_bot_polling())
+
+            # Start daily check-in scheduler
+            scheduler_task = asyncio.create_task(daily_checkin_scheduler(bot))
         except Exception as e:
             print(f"[Bot Warning] Could not initialize bot: {e}", flush=True)
     else:
@@ -90,6 +127,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if scheduler_task:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
     if bot_task:
         bot_task.cancel()
         try:

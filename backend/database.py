@@ -61,7 +61,13 @@ class PingLog(Base):
     message = Column(String(256), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+engine = create_async_engine(db_url, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

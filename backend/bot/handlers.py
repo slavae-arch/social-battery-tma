@@ -131,6 +131,31 @@ async def handle_checkin_command(message: Message):
     text = "🔋 <b>Как твоя социальная батарейка сегодня?</b>\nВыбери уровень заряда в один клик:"
     await message.answer(text, parse_mode="HTML", reply_markup=get_checkin_keyboard())
 
+@router.message(Command("battery"))
+async def handle_battery_summary_command(message: Message):
+    """Shows group or company battery summary."""
+    async with async_session() as db:
+        users_res = await db.execute(select(User).order_by(User.battery_level.desc()).limit(15))
+        users = users_res.scalars().all()
+
+    if not users:
+        await message.answer("🔋 В Батарейке пока нет сохраненных статусов! Нажмите кнопку ниже, чтобы начать:", reply_markup=get_main_menu_markup())
+        return
+
+    avg_battery = int(sum(u.battery_level for u in users) / len(users))
+    status_icon = "🔥" if avg_battery >= 70 else ("⚡️" if avg_battery >= 40 else "😴")
+
+    lines = [
+        f"🔋 <b>Общий заряд компании: {avg_battery}% {status_icon}</b>\n",
+    ]
+    for u in users:
+        tag = u.mood_tag or "В ресурсе"
+        safe_name = html.escape(u.first_name)
+        lines.append(f"• {safe_name}: <b>{u.battery_level}%</b> <i>({tag})</i>")
+
+    lines.append("\n<i>Открой приложение, чтобы обновить свой статус и быть на радаре!</i>")
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=get_main_menu_markup())
+
 @router.callback_query(F.data == "ask_checkin")
 async def callback_ask_checkin(query: CallbackQuery):
     await query.message.edit_text(
